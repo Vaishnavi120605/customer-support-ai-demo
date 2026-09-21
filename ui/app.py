@@ -27,6 +27,10 @@ HANDOFF_TRIGGERS = (
     "human",
     "person",
     "agent",
+    "bot",
+    "representative",
+    "speak to someone",
+    "talk to someone",
     "refund exception",
     "payment dispute",
     "damaged",
@@ -101,6 +105,24 @@ def request_handoff(service: SupportService, reason: str, summary: str, priority
         "They will reply in this chat."
     )
     return ticket.id
+
+
+def agent_requested_handoff(response: str) -> bool:
+    """Detect a Foundry response that promises transfer to a human.
+
+    The local queue is the source of truth for the support console. If the
+    remote agent says it is transferring a customer, this creates the matching
+    SQLite ticket even when the customer used unexpected wording.
+    """
+    normalized = response.lower()
+    signals = (
+        "connecting you to a human",
+        "connect you with a human",
+        "human support agent",
+        "human support specialist",
+        "transfer you to a human",
+    )
+    return any(signal in normalized for signal in signals)
 
 
 def render_handoff_banner() -> None:
@@ -207,6 +229,13 @@ def main() -> None:
                         reply = ask_support_agent(f"{order_context(order)}\n\nCustomer question: {prompt}")
                 else:
                     reply = ask_support_agent(f"Customer question: {prompt}")
+                if agent_requested_handoff(reply):
+                    request_handoff(
+                        service,
+                        reason="Foundry agent determined that human support is required.",
+                        summary=f"Customer message: {prompt}\n\nAI response: {reply}",
+                        priority="normal",
+                    )
             except (FoundryInvocationError, ValueError) as error:
                 request_handoff(
                     service,
