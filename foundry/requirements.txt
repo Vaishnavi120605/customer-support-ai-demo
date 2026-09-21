@@ -1,0 +1,3 @@
+# Keep Azure SDK dependencies scoped to the Foundry integration.
+azure-ai-projects>=1.0.0b1
+azure-identity>=1.17.0
