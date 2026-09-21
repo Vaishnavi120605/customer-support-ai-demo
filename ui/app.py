@@ -7,8 +7,19 @@ the presentation layer and exposes clear integration points for those services.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
+import sys
 
 import streamlit as st
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from database.seed import seed
+from foundry.runtime import FoundryInvocationError, ask_support_agent
+from services.support_service import OrderDetails, SupportService
 
 
 PAGE_TITLE = "Acme Support"
@@ -21,6 +32,7 @@ HANDOFF_TRIGGERS = (
     "damaged",
     "address change",
 )
+DATABASE_PATH = PROJECT_ROOT / "database" / "customer_support_demo.db"
 
 
 def initialise_session() -> None:
@@ -37,6 +49,10 @@ def initialise_session() -> None:
     )
     st.session_state.setdefault("handoff_status", "AI support is handling this conversation")
     st.session_state.setdefault("handoff_requested", False)
+    if not DATABASE_PATH.exists():
+        seed(DATABASE_PATH)
+    if "conversation_id" not in st.session_state:
+        st.session_state.conversation_id = SupportService(DATABASE_PATH).create_conversation()
 
 
 def add_message(role: str, content: str) -> None:
@@ -54,13 +70,37 @@ def needs_handoff(message: str) -> bool:
     return any(trigger in message for trigger in HANDOFF_TRIGGERS)
 
 
-def placeholder_response(order_number: str | None) -> str:
-    """Temporary response until the Foundry agent service is connected."""
-    context = f" for order **{order_number}**" if order_number else ""
+def order_context(order: OrderDetails | None) -> str:
+    """Format only customer-safe order fields for the remote AI request."""
+    if order is None:
+        return "No verified order was found for the supplied order number and email."
+    events = "; ".join(
+        f"{event['event_type']} on {event['event_at']}: {event['details']}"
+        for event in order.events
+    ) or "No event history available."
+    items = ", ".join(
+        f"{item['quantity']}× {item['product_name']}" for item in order.items
+    ) or "No item details available."
     return (
-        f"I have your question{context}. This demo screen is ready to connect to the "
-        "Azure AI Foundry agent; its live answer will appear here once the service is wired in."
+        f"Verified order context: order={order.order_number}; status={order.status}; "
+        f"estimated delivery={order.estimated_delivery_date or 'not available'}; "
+        f"delivered={order.delivered_at or 'not delivered'}; "
+        f"cancellation eligible={order.cancellation_eligible}; return eligible={order.return_eligible}; "
+        f"items={items}; events={events}"
     )
+
+
+def request_handoff(service: SupportService, reason: str, summary: str, priority: str = "normal") -> str:
+    """Create an idempotent queue item and return its identifier."""
+    ticket = service.create_handoff(
+        st.session_state.conversation_id, reason=reason, ai_summary=summary, priority=priority
+    )
+    st.session_state.handoff_requested = True
+    st.session_state.handoff_status = (
+        f"Your request is queued for a support specialist (ticket {ticket.id[:8]}). "
+        "They will reply in this chat."
+    )
+    return ticket.id
 
 
 def render_handoff_banner() -> None:
@@ -105,6 +145,7 @@ def main() -> None:
             st.session_state.messages = []
             st.session_state.handoff_requested = False
             st.session_state.handoff_status = "AI support is handling this conversation"
+            st.session_state.conversation_id = SupportService(DATABASE_PATH).create_conversation()
             add_message("assistant", "New conversation started. How can I help today?")
             st.rerun()
 
@@ -112,32 +153,73 @@ def main() -> None:
     st.caption("Ask about an order, delivery, returns, or a support policy.")
     render_handoff_banner()
 
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    service = SupportService(DATABASE_PATH)
+    persisted_messages = service.list_messages(st.session_state.conversation_id)
+    if persisted_messages:
+        role_map = {"customer": "user", "ai": "assistant", "human": "assistant", "system": "assistant"}
+        for message in persisted_messages:
+            with st.chat_message(role_map[message["sender_type"]]):
+                if message["sender_type"] == "human":
+                    st.caption("Human support")
+                st.markdown(message["body"])
+    else:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
     prompt = st.chat_input("Type your question…")
     if not prompt:
         return
 
     add_message("user", prompt)
+    service.add_message(st.session_state.conversation_id, "customer", prompt)
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
         if needs_handoff(prompt):
-            st.session_state.handoff_requested = True
-            st.session_state.handoff_status = (
-                "Your request is queued for a support specialist. They will review this chat and reply here."
+            request_handoff(
+                service,
+                reason="Customer requested human support or a human-only exception.",
+                summary=f"Customer message: {prompt}",
+                priority="high" if any(term in prompt.lower() for term in ("refund", "payment", "damaged")) else "normal",
             )
             reply = (
                 "I’m connecting you with a human support specialist. I’ve kept your order context and chat "
                 "history ready for them."
             )
         else:
-            reply = placeholder_response(order_number or None)
+            try:
+                order = None
+                if order_number:
+                    order = service.lookup_order(order_number, email or None)
+                    if order is None:
+                        request_handoff(
+                            service,
+                            reason="Order could not be verified with the supplied details.",
+                            summary=f"Customer asked: {prompt}. Order input: {order_number}.",
+                        )
+                        reply = (
+                            "I couldn’t verify that order from the details provided, so I’ve asked a human "
+                            "support specialist to help."
+                        )
+                    else:
+                        reply = ask_support_agent(f"{order_context(order)}\n\nCustomer question: {prompt}")
+                else:
+                    reply = ask_support_agent(f"Customer question: {prompt}")
+            except (FoundryInvocationError, ValueError) as error:
+                request_handoff(
+                    service,
+                    reason="AI service or order lookup could not provide a grounded answer.",
+                    summary=f"Customer asked: {prompt}. Technical category: {type(error).__name__}.",
+                )
+                reply = (
+                    "I’m unable to give you a verified answer right now, so I’ve connected you with a "
+                    "human support specialist."
+                )
         st.markdown(reply)
     add_message("assistant", reply)
+    service.add_message(st.session_state.conversation_id, "ai", reply)
 
 
 if __name__ == "__main__":

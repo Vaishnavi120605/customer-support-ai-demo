@@ -90,6 +90,7 @@ The GitHub issues in this repository are ordered by phase and describe the imple
 4. Authenticate to Azure locally with `az login`; do not add credentials to `.env`.
 5. Seed the demo database with `python3 database/seed.py`.
 6. Start the customer UI with `streamlit run ui/app.py`.
+7. In another terminal, start the human console with `streamlit run support/console.py`.
 
 ## Security
 

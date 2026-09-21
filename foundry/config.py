@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 class FoundryConfigurationError(ValueError):
@@ -36,6 +37,15 @@ def _required_environment(name: str) -> str:
 
 def load_foundry_config() -> FoundryConfig:
     """Load non-secret Foundry settings from process environment variables."""
+
+    # Makes the documented local `.env` workflow work while preserving real
+    # environment variables as the source of truth in deployed environments.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    except ImportError:
+        pass
 
     endpoint = _required_environment("FOUNDRY_PROJECT_ENDPOINT")
     if not endpoint.startswith("https://"):
