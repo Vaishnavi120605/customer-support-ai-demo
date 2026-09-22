@@ -40,7 +40,7 @@ DATABASE_PATH = PROJECT_ROOT / "database" / "customer_support_demo.db"
 
 
 def initialise_session() -> None:
-    """Set defaults once per browser session."""
+    """Set defaults and restore a conversation selected by the browser URL."""
     st.session_state.setdefault(
         "messages",
         [
@@ -55,8 +55,22 @@ def initialise_session() -> None:
     st.session_state.setdefault("handoff_requested", False)
     if not DATABASE_PATH.exists():
         seed(DATABASE_PATH)
+    service = SupportService(DATABASE_PATH)
+    saved_conversation_id = st.query_params.get("conversation")
     if "conversation_id" not in st.session_state:
-        st.session_state.conversation_id = SupportService(DATABASE_PATH).create_conversation()
+        st.session_state.conversation_id = saved_conversation_id or service.create_conversation()
+
+    # Restore handoff state from SQLite after a browser refresh.
+    ticket = service.get_handoff_for_conversation(st.session_state.conversation_id)
+    if ticket is not None:
+        st.session_state.handoff_requested = True
+        st.session_state.handoff_status = (
+            f"A human support specialist is handling this conversation (ticket {ticket.id[:8]})."
+        )
+
+    # The identifier lets this browser reopen the same database transcript.
+    if saved_conversation_id != st.session_state.conversation_id:
+        st.query_params["conversation"] = st.session_state.conversation_id
 
 
 def add_message(role: str, content: str) -> None:
@@ -168,6 +182,7 @@ def main() -> None:
             st.session_state.handoff_requested = False
             st.session_state.handoff_status = "AI support is handling this conversation"
             st.session_state.conversation_id = SupportService(DATABASE_PATH).create_conversation()
+            st.query_params["conversation"] = st.session_state.conversation_id
             add_message("assistant", "New conversation started. How can I help today?")
             st.rerun()
 

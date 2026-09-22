@@ -155,6 +155,17 @@ class SupportService:
             ).fetchall()
         return tuple(dict(row) for row in rows)
 
+    def get_handoff_for_conversation(self, conversation_id: str) -> HandoffTicket | None:
+        """Return the handoff ticket for a conversation, if it has one."""
+        conversation_id = self._nonempty(conversation_id, "conversation_id", 128)
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT id, conversation_id, reason, priority, status, ai_summary
+                   FROM handoff_tickets WHERE conversation_id = ?""",
+                (conversation_id,),
+            ).fetchone()
+        return HandoffTicket(**dict(row)) if row is not None else None
+
     def create_handoff(self, conversation_id: str, reason: str, ai_summary: str, priority: Priority = "normal") -> HandoffTicket:
         """Queue a conversation for human support exactly once.
 
