@@ -112,9 +112,15 @@ def assign_ticket(ticket_id: str, assignee: str) -> None:
     if not assignee:
         raise ValueError("Enter the name of the support specialist.")
     with connect() as connection:
-        ticket = connection.execute("SELECT conversation_id FROM handoff_tickets WHERE id = ?", (ticket_id,)).fetchone()
+        ticket = connection.execute(
+            "SELECT conversation_id, status FROM handoff_tickets WHERE id = ?", (ticket_id,)
+        ).fetchone()
         if ticket is None:
             raise ValueError("This ticket no longer exists.")
+        if ticket["status"] == "resolved":
+            raise ValueError("This ticket is closed because the customer switched back to AI support.")
+        if ticket["status"] == "waiting_customer":
+            raise ValueError("Wait for the customer's next message before changing the assignment.")
         connection.execute("UPDATE handoff_tickets SET assigned_to = ?, status = 'assigned' WHERE id = ?", (assignee, ticket_id))
         add_audit_event(connection, ticket["conversation_id"], "ticket_assigned", f"Assigned to {assignee}.")
 
@@ -126,13 +132,20 @@ def post_reply(ticket_id: str, body: str, specialist: str) -> None:
     if not specialist:
         raise ValueError("Enter your name before sending a reply.")
     with connect() as connection:
-        ticket = connection.execute("SELECT conversation_id, status FROM handoff_tickets WHERE id = ?", (ticket_id,)).fetchone()
+        ticket = connection.execute(
+            """SELECT t.conversation_id, t.status, cv.support_mode
+               FROM handoff_tickets t JOIN conversations cv ON cv.id = t.conversation_id
+               WHERE t.id = ?""",
+            (ticket_id,),
+        ).fetchone()
         if ticket is None:
             raise ValueError("This ticket no longer exists.")
         if ticket["status"] == "resolved":
             raise ValueError("Reopen the ticket before replying.")
         if ticket["status"] == "waiting_customer":
             raise ValueError("Wait for the customer’s next message before sending another reply.")
+        if ticket["support_mode"] != "human":
+            raise ValueError("The customer is using AI support now, so a human reply cannot be sent.")
         now = utc_now()
         connection.execute(
             "INSERT INTO messages (id, conversation_id, sender_type, body, created_at) VALUES (?, ?, 'human', ?, ?)",
@@ -262,7 +275,11 @@ def main() -> None:
         specialist = st.text_input("Your name", value=ticket["assigned_to"] or "", key=f"specialist-{ticket['id']}")
         action_left, action_right = st.columns(2)
         with action_left:
-            if st.button("Assign to me", use_container_width=True):
+            if st.button(
+                "Assign to me",
+                use_container_width=True,
+                disabled=ticket["status"] in {"resolved", "waiting_customer"},
+            ):
                 try:
                     assign_ticket(ticket["id"], specialist)
                     st.success("Ticket assigned.")
