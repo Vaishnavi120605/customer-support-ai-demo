@@ -52,6 +52,27 @@ h2,h3 {font-size:1.1rem !important;}
 </style>
 """
 
+CHAT_STYLE += """
+<style>
+[data-testid="stChatMessage"]:has(.customer-message-marker) {
+ margin-left:auto !important; margin-right:0 !important; align-self:flex-end !important;
+ flex-direction:row-reverse; background:#0051d5 !important; border-color:#0051d5 !important;
+ border-radius:14px 14px 3px 14px !important;
+}
+[data-testid="stChatMessage"]:has(.customer-message-marker) p {color:white !important;}
+[data-testid="stElementContainer"]:has(> [data-testid="stChatMessage"]) {width:100% !important;}
+[data-testid="stChatInput"], [data-testid="stChatInput"] > div,
+[data-testid="stChatInput"] textarea, [data-testid="stChatInput"] [data-baseweb="textarea"],
+[data-testid="stBottomBlockContainer"], [data-testid="stBottomBlockContainer"] > div {
+ background:white !important; color:#0b1c30 !important;
+}
+[data-testid="stChatInput"] textarea {caret-color:#0b1c30 !important; -webkit-text-fill-color:#0b1c30 !important;}
+textarea::placeholder,input::placeholder {color:#657187 !important; opacity:1 !important;}
+[data-testid="stChatInputSubmitButton"] {color:#0051d5 !important;}
+[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 {color:#0b1c30 !important;}
+</style>
+"""
+
 def navigation(active: str) -> str:
     customer = 'active' if active == 'customer' else ''
     agent = 'active' if active == 'agent' else ''

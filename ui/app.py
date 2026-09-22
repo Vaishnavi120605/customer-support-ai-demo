@@ -219,11 +219,12 @@ def start_new_chat() -> None:
 
 
 @st.fragment(run_every="2s")
-def poll_for_human_reply() -> None:
+def poll_for_human_reply(snapshot: tuple) -> None:
     """Rerun the page when a specialist posts the awaited next reply."""
     service = SupportService(DATABASE_PATH)
     ticket = service.get_handoff_for_conversation(st.session_state.conversation_id)
-    if ticket is None or ticket.status not in {"open", "assigned"}:
+    current = (len(service.list_messages(st.session_state.conversation_id)), ticket.status if ticket else None, service.is_closed(st.session_state.conversation_id))
+    if current != snapshot:
         st.rerun()
 
 
@@ -296,6 +297,9 @@ def main() -> None:
     service = SupportService(DATABASE_PATH)
     persisted_messages = service.list_messages(st.session_state.conversation_id)
     handoff_ticket = service.get_handoff_for_conversation(st.session_state.conversation_id)
+    closed = service.is_closed(st.session_state.conversation_id)
+    if not closed:
+        poll_for_human_reply((len(persisted_messages), handoff_ticket.status if handoff_ticket else None, closed))
     last_persisted_sender = persisted_messages[-1]["sender_type"] if persisted_messages else None
     awaiting_human_reply = (
         service.get_support_mode(st.session_state.conversation_id) == "human"
@@ -310,6 +314,8 @@ def main() -> None:
         role_map = {"customer": "user", "ai": "assistant", "human": "assistant", "system": "assistant"}
         for message in persisted_messages:
             with st.chat_message(role_map[message["sender_type"]]):
+                if message["sender_type"] == "customer":
+                    st.markdown('<span class="customer-message-marker"></span>', unsafe_allow_html=True)
                 st.caption({"customer": "You", "ai": "Acme AI", "human": "Human support", "system": "Support update"}[message["sender_type"]])
                 st.markdown(message["body"])
     else:
@@ -317,10 +323,14 @@ def main() -> None:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
+    if closed:
+        st.success("This conversation is resolved and closed. Choose Start a new chat for further help.")
+        st.chat_input("Conversation closed", disabled=True)
+        return
+
     if awaiting_human_reply:
         # The fragment polls SQLite every two seconds. When the specialist
         # replies, the page reruns, displays that one reply, and unlocks input.
-        poll_for_human_reply()
         st.info("Your message is with human support. Their reply will appear automatically.")
         if st.button("Switch back to AI", use_container_width=True):
             switch_to_ai(service)
@@ -334,8 +344,12 @@ def main() -> None:
         return
 
     add_message("user", prompt)
-    service.add_message(st.session_state.conversation_id, "customer", prompt)
+    try:
+        service.add_message(st.session_state.conversation_id, "customer", prompt)
+    except LookupError:
+        st.rerun()
     with st.chat_message("user"):
+        st.markdown('<span class="customer-message-marker"></span>', unsafe_allow_html=True)
         st.markdown(prompt)
 
     if service.get_support_mode(st.session_state.conversation_id) == "human":

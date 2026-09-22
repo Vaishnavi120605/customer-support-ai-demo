@@ -196,10 +196,10 @@ class SupportService:
         message_id = str(uuid4())
         with self._connect() as connection:
             updated = connection.execute(
-                "UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (conversation_id,)
+                "UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status NOT IN ('resolved', 'closed')", (conversation_id,)
             ).rowcount
             if not updated:
-                raise LookupError("conversation does not exist")
+                raise LookupError("Conversation is closed or no longer exists. Start a new chat.")
             connection.execute(
                 "INSERT INTO messages (id, conversation_id, sender_type, body) VALUES (?, ?, ?, ?)",
                 (message_id, conversation_id, sender_type, body),
@@ -255,12 +255,17 @@ class SupportService:
             raise LookupError("conversation does not exist")
         return row["support_mode"]
 
+    def is_closed(self, conversation_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute("SELECT status FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+        return row is None or row["status"] in {"resolved", "closed"}
+
     def switch_to_ai(self, conversation_id: str) -> None:
         """End the active human handoff because the customer explicitly chose AI."""
         conversation_id = self._nonempty(conversation_id, "conversation_id", 128)
         with self._connect() as connection:
             updated = connection.execute(
-                "UPDATE conversations SET support_mode = 'ai', status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "UPDATE conversations SET support_mode = 'ai', status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status NOT IN ('resolved', 'closed')",
                 (conversation_id,),
             ).rowcount
             if not updated:

@@ -168,15 +168,22 @@ def resolve_ticket(ticket_id: str, specialist: str) -> None:
     if not specialist:
         raise ValueError("Enter your name before resolving a ticket.")
     with connect() as connection:
-        ticket = connection.execute("SELECT conversation_id FROM handoff_tickets WHERE id = ?", (ticket_id,)).fetchone()
+        connection.execute("BEGIN IMMEDIATE")
+        ticket = connection.execute("SELECT conversation_id, status FROM handoff_tickets WHERE id = ?", (ticket_id,)).fetchone()
         if ticket is None:
             raise ValueError("This ticket no longer exists.")
+        if ticket["status"] == "resolved":
+            return
         now = utc_now()
         connection.execute(
             "UPDATE handoff_tickets SET assigned_to = ?, status = 'resolved', resolved_at = ? WHERE id = ?",
             (specialist, now, ticket_id),
         )
         connection.execute("UPDATE conversations SET status = 'resolved', updated_at = ? WHERE id = ?", (now, ticket["conversation_id"]))
+        connection.execute(
+            "INSERT INTO messages (id, conversation_id, sender_type, body, created_at) VALUES (?, ?, 'system', ?, ?)",
+            (str(uuid.uuid4()), ticket["conversation_id"], f"{specialist} resolved and closed this conversation. Start a new chat if you need more help.", now),
+        )
         add_audit_event(connection, ticket["conversation_id"], "ticket_resolved", f"Resolved by {specialist}.")
 
 
@@ -188,7 +195,17 @@ def render_ticket_list(tickets: list[sqlite3.Row]) -> str | None:
         row["id"]: f"{row['priority'].upper()} · {row['status']} · {row['full_name'] or 'Unknown customer'} · {row['reason'][:55]}"
         for row in tickets
     }
-    return st.radio("Support queue", options=list(labels), format_func=labels.get, label_visibility="collapsed")
+    selected = st.query_params.get("ticket")
+    options = list(labels)
+    if selected and selected not in options:
+        st.info("Your selected ticket is hidden by these filters. Clear the filters to see it.")
+        return None
+    def remember_ticket():
+        st.query_params["ticket"] = st.session_state["selected_ticket"]
+    chosen = st.radio("Support queue", options=options, index=options.index(selected) if selected in options else 0,
+                      format_func=labels.get, key="selected_ticket", on_change=remember_ticket, label_visibility="collapsed")
+    st.query_params["ticket"] = chosen
+    return chosen
 
 
 def render_transcript(conversation_id: str) -> None:
@@ -200,6 +217,8 @@ def render_transcript(conversation_id: str) -> None:
     role_labels = {"customer": "Customer", "ai": "AI", "human": "Human support", "system": "System"}
     for message in messages:
         with st.chat_message("assistant" if message["sender_type"] in {"ai", "human", "system"} else "user"):
+            if message["sender_type"] == "customer":
+                st.markdown('<span class="customer-message-marker"></span>', unsafe_allow_html=True)
             st.caption(f"{role_labels[message['sender_type']]} · {message['created_at']}")
             st.markdown(message["body"])
 
