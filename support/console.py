@@ -11,6 +11,7 @@ the customer-facing service is responsible for creating a handoff ticket.
 from __future__ import annotations
 
 import os
+import sys
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -22,6 +23,9 @@ import streamlit as st
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from services.chat_style import CHAT_STYLE
 DEFAULT_DATABASE_PATH = PROJECT_ROOT / "database" / "customer_support_demo.db"
 TICKET_STATUSES = ("open", "assigned", "waiting_customer", "resolved")
 PRIORITIES = ("low", "normal", "high", "urgent")
@@ -74,7 +78,7 @@ def list_tickets(status: str, priority: str) -> list[sqlite3.Row]:
     query = f"""
         SELECT t.*, c.full_name, c.email,
                (SELECT body FROM messages m WHERE m.conversation_id = t.conversation_id
-                ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1) AS latest_message
+                ORDER BY m.rowid DESC LIMIT 1) AS latest_message
         FROM handoff_tickets t
         LEFT JOIN conversations cv ON cv.id = t.conversation_id
         LEFT JOIN customers c ON c.id = cv.customer_id
@@ -102,7 +106,7 @@ def get_messages(conversation_id: str) -> list[sqlite3.Row]:
     with connect() as connection:
         return connection.execute(
             """SELECT sender_type, body, created_at FROM messages
-               WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC""",
+               WHERE conversation_id = ? ORDER BY rowid ASC""",
             (conversation_id,),
         ).fetchall()
 
@@ -200,6 +204,20 @@ def render_transcript(conversation_id: str) -> None:
             st.markdown(message["body"])
 
 
+@st.fragment(run_every="2s")
+def poll_inbox(snapshot: tuple) -> None:
+    """Refresh the inbox when messages or ticket states change."""
+    with connect() as connection:
+        current = (
+            tuple(connection.execute("SELECT COUNT(*), MAX(rowid) FROM messages").fetchone()),
+            tuple(tuple(row) for row in connection.execute(
+                "SELECT id, status, assigned_to FROM handoff_tickets ORDER BY id"
+            )),
+        )
+    if current != snapshot:
+        st.rerun(scope="app")
+
+
 def main() -> None:
     st.set_page_config(page_title="Acme Support Console", page_icon="🧑‍💼", layout="wide")
     st.markdown(
@@ -229,6 +247,15 @@ def main() -> None:
         st.code("python database/seed.py", language="bash")
         return
 
+    st.markdown(CHAT_STYLE, unsafe_allow_html=True)
+    with connect() as connection:
+        snapshot = (
+            tuple(connection.execute("SELECT COUNT(*), MAX(rowid) FROM messages").fetchone()),
+            tuple(tuple(row) for row in connection.execute(
+                "SELECT id, status, assigned_to FROM handoff_tickets ORDER BY id"
+            )),
+        )
+    poll_inbox(snapshot)
     with st.sidebar:
         st.markdown("<div class='queue-label'>LIVE INBOX</div>", unsafe_allow_html=True)
         st.header("Queue filters")

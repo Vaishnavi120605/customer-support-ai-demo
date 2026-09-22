@@ -228,7 +228,7 @@ class SupportService:
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT sender_type, body, created_at FROM messages
-                   WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC""",
+                   WHERE conversation_id = ? ORDER BY rowid ASC""",
                 (conversation_id,),
             ).fetchall()
         return tuple(dict(row) for row in rows)

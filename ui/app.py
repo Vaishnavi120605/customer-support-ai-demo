@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from database.seed import seed
 from foundry.runtime import FoundryInvocationError, ask_support_agent
 from services.support_service import OrderDetails, SupportService
+from services.chat_style import CHAT_STYLE
 
 
 PAGE_TITLE = "Acme Support"
@@ -266,6 +267,7 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
+    st.markdown(CHAT_STYLE, unsafe_allow_html=True)
     with st.sidebar:
         st.markdown("<div class='brand-kicker'>ACME / CUSTOMER CARE</div><div class='brand-name'>Acme Support</div><div class='brand-copy'>A faster way to get order help, built for calm conversations.</div>", unsafe_allow_html=True)
         st.markdown("<div class='sidebar-card'><b>Secure order help</b>Your order details are checked before the assistant shares information.</div>", unsafe_allow_html=True)
