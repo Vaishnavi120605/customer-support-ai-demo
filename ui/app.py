@@ -176,6 +176,15 @@ def switch_to_ai(service: SupportService) -> None:
     service.add_message(st.session_state.conversation_id, "system", reply)
 
 
+@st.fragment(run_every="2s")
+def poll_for_human_reply() -> None:
+    """Rerun the page when a specialist posts the awaited next reply."""
+    service = SupportService(DATABASE_PATH)
+    ticket = service.get_handoff_for_conversation(st.session_state.conversation_id)
+    if ticket is None or ticket.status not in {"open", "assigned"}:
+        st.rerun()
+
+
 def main() -> None:
     st.set_page_config(page_title=PAGE_TITLE, page_icon="💬", layout="wide")
     initialise_session()
@@ -240,15 +249,13 @@ def main() -> None:
                 st.markdown(message["content"])
 
     if awaiting_human_reply:
-        st.info("Your message is with human support. Wait for their reply before sending the next question.")
-        check_reply, switch_ai = st.columns(2)
-        with check_reply:
-            if st.button("Check for human reply", use_container_width=True):
-                st.rerun()
-        with switch_ai:
-            if st.button("Switch back to AI", use_container_width=True):
-                switch_to_ai(service)
-                st.rerun()
+        # The fragment polls SQLite every two seconds. When the specialist
+        # replies, the page reruns, displays that one reply, and unlocks input.
+        poll_for_human_reply()
+        st.info("Your message is with human support. Their reply will appear automatically.")
+        if st.button("Switch back to AI", use_container_width=True):
+            switch_to_ai(service)
+            st.rerun()
 
     prompt = st.chat_input(
         "Waiting for human support…" if awaiting_human_reply else "Type your question…",
@@ -270,6 +277,7 @@ def main() -> None:
                 st.markdown(reply)
         # In human mode, ordinary customer messages are saved above for the
         # specialist. The AI intentionally remains silent.
+        st.rerun()
         return
 
     with st.chat_message("assistant"):
@@ -323,6 +331,8 @@ def main() -> None:
         st.markdown(reply)
     add_message("assistant", reply)
     service.add_message(st.session_state.conversation_id, "ai", reply)
+    if service.get_support_mode(st.session_state.conversation_id) == "human":
+        st.rerun()
 
 
 if __name__ == "__main__":
