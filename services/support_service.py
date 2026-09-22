@@ -60,15 +60,20 @@ class SupportService:
         return connection
 
     def _ensure_schema_extensions(self) -> None:
-        """Upgrade databases created before customer-selected support modes existed."""
+        """Upgrade databases created before support modes and saved order context."""
         with self._connect() as connection:
             columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(conversations)")
             }
-            if "support_mode" not in columns:
+            added_support_mode = "support_mode" not in columns
+            if added_support_mode:
                 connection.execute(
                     "ALTER TABLE conversations ADD COLUMN support_mode TEXT NOT NULL DEFAULT 'ai'"
                 )
+            for column in ("context_order_number", "context_email"):
+                if column not in columns:
+                    connection.execute(f"ALTER TABLE conversations ADD COLUMN {column} TEXT")
+            if added_support_mode:
                 # Existing active handoffs should continue in human mode after upgrade.
                 connection.execute(
                     """UPDATE conversations SET support_mode = 'human'
@@ -143,6 +148,44 @@ class SupportService:
                 "INSERT INTO conversations (id, customer_id) VALUES (?, ?)", (conversation_id, customer_id)
             )
         return conversation_id
+
+    def get_conversation_context(self, conversation_id: str) -> dict[str, str]:
+        """Return the locally saved, customer-provided order fields for a chat.
+
+        These values stay in the local SQLite database rather than in the URL,
+        so a browser refresh restores the form without exposing them in a link.
+        """
+        conversation_id = self._nonempty(conversation_id, "conversation_id", 128)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT context_order_number, context_email FROM conversations WHERE id = ?",
+                (conversation_id,),
+            ).fetchone()
+        if row is None:
+            raise LookupError("conversation does not exist")
+        return {
+            "order_number": row["context_order_number"] or "",
+            "email": row["context_email"] or "",
+        }
+
+    def save_conversation_context(self, conversation_id: str, order_number: str, email: str) -> None:
+        """Save order fields supplied by the customer for refresh recovery.
+
+        Validation remains in ``lookup_order`` so saving an incomplete field
+        never confirms that an order belongs to a particular customer.
+        """
+        conversation_id = self._nonempty(conversation_id, "conversation_id", 128)
+        if len(order_number) > 128 or len(email) > 320:
+            raise ValueError("order context is too long")
+        with self._connect() as connection:
+            updated = connection.execute(
+                """UPDATE conversations
+                   SET context_order_number = ?, context_email = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (order_number.strip(), email.strip().lower(), conversation_id),
+            ).rowcount
+        if not updated:
+            raise LookupError("conversation does not exist")
 
     def add_message(self, conversation_id: str, sender_type: SenderType, body: str) -> str:
         """Persist one chat message and update the conversation activity timestamp."""

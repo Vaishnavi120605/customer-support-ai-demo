@@ -100,6 +100,10 @@ def initialise_session() -> None:
     if saved_conversation_id != st.session_state.conversation_id:
         st.query_params["conversation"] = st.session_state.conversation_id
 
+    saved_context = service.get_conversation_context(st.session_state.conversation_id)
+    st.session_state.setdefault("order_number_input", saved_context["order_number"])
+    st.session_state.setdefault("email_input", saved_context["email"])
+
 
 def add_message(role: str, content: str) -> None:
     st.session_state.messages.append(
@@ -201,6 +205,18 @@ def switch_to_ai(service: SupportService) -> None:
     service.add_message(st.session_state.conversation_id, "system", reply)
 
 
+def start_new_chat() -> None:
+    """Create a fresh chat and clear its locally saved order context."""
+    st.session_state.messages = []
+    st.session_state.handoff_requested = False
+    st.session_state.handoff_status = "AI support is handling this conversation"
+    st.session_state.conversation_id = SupportService(DATABASE_PATH).create_conversation()
+    st.session_state.order_number_input = ""
+    st.session_state.email_input = ""
+    st.query_params["conversation"] = st.session_state.conversation_id
+    add_message("assistant", "New conversation started. How can I help today?")
+
+
 @st.fragment(run_every="2s")
 def poll_for_human_reply() -> None:
     """Rerun the page when a specialist posts the awaited next reply."""
@@ -259,21 +275,17 @@ def main() -> None:
             "Order number",
             placeholder="e.g. ORD-1042",
             help="This will be used by the order-lookup tool once it is connected.",
+            key="order_number_input",
         ).strip()
-        email = st.text_input("Email address (optional)", placeholder="you@example.com").strip()
-        st.caption("Your details are used only to find the relevant order.")
+        email = st.text_input("Email address (optional)", placeholder="you@example.com", key="email_input").strip()
+        service = SupportService(DATABASE_PATH)
+        service.save_conversation_context(st.session_state.conversation_id, order_number, email)
+        st.caption("Saved locally for this chat and used only to verify the relevant order.")
 
         st.divider()
         st.subheader("Conversation")
         st.caption(f"{len(st.session_state.messages)} messages in this session")
-        if st.button("Start a new chat", use_container_width=True):
-            st.session_state.messages = []
-            st.session_state.handoff_requested = False
-            st.session_state.handoff_status = "AI support is handling this conversation"
-            st.session_state.conversation_id = SupportService(DATABASE_PATH).create_conversation()
-            st.query_params["conversation"] = st.session_state.conversation_id
-            add_message("assistant", "New conversation started. How can I help today?")
-            st.rerun()
+        st.button("Start a new chat", use_container_width=True, on_click=start_new_chat)
 
     st.markdown("""<section class="hero"><div class="eyebrow">ACME CARE DESK</div><h1>How can we help?</h1><p>Ask about an order, delivery, returns, or a support policy.</p></section>""", unsafe_allow_html=True)
     render_handoff_banner()
