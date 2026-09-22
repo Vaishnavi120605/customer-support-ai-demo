@@ -51,12 +51,31 @@ class SupportService:
 
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = str(database_path)
+        self._ensure_schema_extensions()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
+
+    def _ensure_schema_extensions(self) -> None:
+        """Upgrade databases created before customer-selected support modes existed."""
+        with self._connect() as connection:
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(conversations)")
+            }
+            if "support_mode" not in columns:
+                connection.execute(
+                    "ALTER TABLE conversations ADD COLUMN support_mode TEXT NOT NULL DEFAULT 'ai'"
+                )
+                # Existing active handoffs should continue in human mode after upgrade.
+                connection.execute(
+                    """UPDATE conversations SET support_mode = 'human'
+                       WHERE id IN (
+                           SELECT conversation_id FROM handoff_tickets WHERE status != 'resolved'
+                       )"""
+                )
 
     @staticmethod
     def _order_number(order_number: str) -> str:
@@ -166,6 +185,38 @@ class SupportService:
             ).fetchone()
         return HandoffTicket(**dict(row)) if row is not None else None
 
+    def get_support_mode(self, conversation_id: str) -> Literal["ai", "human"]:
+        """Return the customer's selected support mode for this conversation."""
+        conversation_id = self._nonempty(conversation_id, "conversation_id", 128)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT support_mode FROM conversations WHERE id = ?", (conversation_id,)
+            ).fetchone()
+        if row is None:
+            raise LookupError("conversation does not exist")
+        return row["support_mode"]
+
+    def switch_to_ai(self, conversation_id: str) -> None:
+        """End the active human handoff because the customer explicitly chose AI."""
+        conversation_id = self._nonempty(conversation_id, "conversation_id", 128)
+        with self._connect() as connection:
+            updated = connection.execute(
+                "UPDATE conversations SET support_mode = 'ai', status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (conversation_id,),
+            ).rowcount
+            if not updated:
+                raise LookupError("conversation does not exist")
+            connection.execute(
+                """UPDATE handoff_tickets SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP
+                   WHERE conversation_id = ? AND status != 'resolved'""",
+                (conversation_id,),
+            )
+            connection.execute(
+                """INSERT INTO audit_events (id, conversation_id, event_type, actor_type, detail)
+                   VALUES (?, ?, 'customer_switched_to_ai', 'customer', ?)""",
+                (str(uuid4()), conversation_id, "Customer explicitly requested AI support."),
+            )
+
     def create_handoff(self, conversation_id: str, reason: str, ai_summary: str, priority: Priority = "normal") -> HandoffTicket:
         """Queue a conversation for human support exactly once.
 
@@ -208,4 +259,25 @@ class SupportService:
                     "SELECT id, conversation_id, reason, priority, status, ai_summary FROM handoff_tickets WHERE id = ?",
                     (ticket_id,),
                 ).fetchone()
+            elif existing["status"] == "resolved":
+                connection.execute(
+                    """UPDATE handoff_tickets
+                       SET reason = ?, priority = ?, status = 'open', assigned_to = NULL,
+                           ai_summary = ?, resolved_at = NULL
+                       WHERE id = ?""",
+                    (reason, priority, ai_summary, existing["id"]),
+                )
+                connection.execute(
+                    """INSERT INTO audit_events (id, conversation_id, event_type, actor_type, detail)
+                       VALUES (?, ?, 'handoff_reopened', 'system', ?)""",
+                    (str(uuid4()), conversation_id, f"priority={priority}; reason={reason}"),
+                )
+                existing = connection.execute(
+                    "SELECT id, conversation_id, reason, priority, status, ai_summary FROM handoff_tickets WHERE id = ?",
+                    (existing["id"],),
+                ).fetchone()
+            connection.execute(
+                "UPDATE conversations SET support_mode = 'human', status = 'awaiting_human', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (conversation_id,),
+            )
         return HandoffTicket(**dict(existing))

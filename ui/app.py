@@ -36,6 +36,16 @@ HANDOFF_TRIGGERS = (
     "damaged",
     "address change",
 )
+AI_SWITCH_TRIGGERS = (
+    "switch to ai",
+    "back to ai",
+    "talk to ai",
+    "speak to ai",
+    "i want ai",
+    "want ai",
+    "ai assistant",
+    "ai support",
+)
 DATABASE_PATH = PROJECT_ROOT / "database" / "customer_support_demo.db"
 
 
@@ -60,13 +70,16 @@ def initialise_session() -> None:
     if "conversation_id" not in st.session_state:
         st.session_state.conversation_id = saved_conversation_id or service.create_conversation()
 
-    # Restore handoff state from SQLite after a browser refresh.
+    # Restore the customer-selected support mode after a browser refresh.
     ticket = service.get_handoff_for_conversation(st.session_state.conversation_id)
-    if ticket is not None:
+    if service.get_support_mode(st.session_state.conversation_id) == "human":
         st.session_state.handoff_requested = True
         st.session_state.handoff_status = (
             f"A human support specialist is handling this conversation (ticket {ticket.id[:8]})."
         )
+    else:
+        st.session_state.handoff_requested = False
+        st.session_state.handoff_status = "AI support is handling this conversation"
 
     # The identifier lets this browser reopen the same database transcript.
     if saved_conversation_id != st.session_state.conversation_id:
@@ -86,6 +99,12 @@ def add_message(role: str, content: str) -> None:
 def needs_handoff(message: str) -> bool:
     message = message.lower()
     return any(trigger in message for trigger in HANDOFF_TRIGGERS)
+
+
+def requests_ai_support(message: str) -> bool:
+    """Recognize an explicit request to leave human support and return to AI."""
+    normalized = message.lower()
+    return any(trigger in normalized for trigger in AI_SWITCH_TRIGGERS)
 
 
 def order_context(order: OrderDetails | None) -> str:
@@ -212,6 +231,20 @@ def main() -> None:
     service.add_message(st.session_state.conversation_id, "customer", prompt)
     with st.chat_message("user"):
         st.markdown(prompt)
+
+    if service.get_support_mode(st.session_state.conversation_id) == "human":
+        if requests_ai_support(prompt):
+            service.switch_to_ai(st.session_state.conversation_id)
+            st.session_state.handoff_requested = False
+            st.session_state.handoff_status = "AI support is handling this conversation"
+            reply = "AI support is active again. How can I help?"
+            with st.chat_message("assistant"):
+                st.markdown(reply)
+            add_message("assistant", reply)
+            service.add_message(st.session_state.conversation_id, "system", reply)
+        # In human mode, ordinary customer messages are saved above for the
+        # specialist. The AI intentionally remains silent.
+        return
 
     with st.chat_message("assistant"):
         if needs_handoff(prompt):

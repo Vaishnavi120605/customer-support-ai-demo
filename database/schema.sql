@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     customer_id TEXT REFERENCES customers(id),
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'awaiting_human', 'resolved', 'closed')),
+    support_mode TEXT NOT NULL DEFAULT 'ai' CHECK (support_mode IN ('ai', 'human')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
