@@ -68,13 +68,17 @@ def add_audit_event(connection: sqlite3.Connection, conversation_id: str, event_
 def list_tickets(status: str, priority: str) -> list[sqlite3.Row]:
     clauses: list[str] = []
     values: list[str] = []
-    if status != "all":
+    if status == "current":
+        clauses.append("t.status != 'resolved'")
+    elif status != "all":
         clauses.append("t.status = ?")
         values.append(status)
     if priority != "all":
         clauses.append("t.priority = ?")
         values.append(priority)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    ordering = "t.rowid DESC" if status == "current" else "CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END, t.created_at ASC"
+    limit = "LIMIT 1" if status == "current" else ""
     query = f"""
         SELECT t.*, c.full_name, c.email,
                (SELECT body FROM messages m WHERE m.conversation_id = t.conversation_id
@@ -83,8 +87,8 @@ def list_tickets(status: str, priority: str) -> list[sqlite3.Row]:
         LEFT JOIN conversations cv ON cv.id = t.conversation_id
         LEFT JOIN customers c ON c.id = cv.customer_id
         {where}
-        ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END,
-                 t.created_at ASC
+        ORDER BY {ordering}
+        {limit}
     """
     with connect() as connection:
         return connection.execute(query, values).fetchall()
@@ -187,11 +191,11 @@ def resolve_ticket(ticket_id: str, specialist: str) -> None:
         add_audit_event(connection, ticket["conversation_id"], "ticket_resolved", f"Resolved by {specialist}.")
 
 
-def render_ticket_list(tickets: list[sqlite3.Row]) -> str | None:
+def render_ticket_list(tickets: list[sqlite3.Row], *, current_only: bool = False) -> str | None:
     selected = st.session_state.get("selected_ticket") or st.query_params.get("ticket")
     # Keep the case being handled visible when sending changes its status or
     # latest message, even if it no longer matches the current queue filters.
-    if selected and selected not in {row["id"] for row in tickets}:
+    if not current_only and selected and selected not in {row["id"] for row in tickets}:
         current_ticket = get_ticket(selected)
         if current_ticket is not None:
             tickets = [current_ticket, *tickets]
@@ -287,7 +291,8 @@ def main() -> None:
     with st.sidebar:
         st.markdown("<div class='queue-label'>LIVE INBOX</div>", unsafe_allow_html=True)
         st.header("Queue filters")
-        status = st.selectbox("Status", ("all", *TICKET_STATUSES))
+        status = st.selectbox("Status", ("current", "all", *TICKET_STATUSES),
+                              format_func=lambda value: "Current customer (latest active ticket)" if value == "current" else value.replace("_", " ").title())
         priority = st.selectbox("Priority", ("all", *PRIORITIES))
         if st.button("Refresh queue", use_container_width=True):
             st.rerun()
@@ -306,7 +311,7 @@ def main() -> None:
     left, right, details = st.columns((1, 2.4, 1), gap="medium")
     with left:
         st.markdown("<div class='queue-label'>PRIORITY QUEUE</div>", unsafe_allow_html=True)
-        selected_id = render_ticket_list(tickets)
+        selected_id = render_ticket_list(tickets, current_only=status == "current")
     if not selected_id:
         return
 
