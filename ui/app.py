@@ -293,10 +293,15 @@ def main() -> None:
     service = SupportService(DATABASE_PATH)
     persisted_messages = service.list_messages(st.session_state.conversation_id)
     handoff_ticket = service.get_handoff_for_conversation(st.session_state.conversation_id)
+    last_persisted_sender = persisted_messages[-1]["sender_type"] if persisted_messages else None
     awaiting_human_reply = (
         service.get_support_mode(st.session_state.conversation_id) == "human"
         and handoff_ticket is not None
         and handoff_ticket.status in {"open", "assigned"}
+        # A human reply always hands the next turn back to the customer. This
+        # UI-level check keeps the transcript and the input state consistent
+        # even during the brief refresh interval between the two browser tabs.
+        and last_persisted_sender != "human"
     )
     if persisted_messages:
         role_map = {"customer": "user", "ai": "assistant", "human": "assistant", "system": "assistant"}
