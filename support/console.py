@@ -25,7 +25,7 @@ import streamlit as st
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-from services.chat_style import CHAT_STYLE
+from services.chat_style import CHAT_STYLE, navigation
 DEFAULT_DATABASE_PATH = PROJECT_ROOT / "database" / "customer_support_demo.db"
 TICKET_STATUSES = ("open", "assigned", "waiting_customer", "resolved")
 PRIORITIES = ("low", "normal", "high", "urgent")
@@ -248,6 +248,7 @@ def main() -> None:
         return
 
     st.markdown(CHAT_STYLE, unsafe_allow_html=True)
+    st.markdown(navigation("agent"), unsafe_allow_html=True)
     with connect() as connection:
         snapshot = (
             tuple(connection.execute("SELECT COUNT(*), MAX(rowid) FROM messages").fetchone()),
@@ -264,7 +265,7 @@ def main() -> None:
         if st.button("Refresh queue", use_container_width=True):
             st.rerun()
         st.divider()
-        st.caption(f"Database: {database_path()}")
+        st.caption("Live inbox · updates automatically")
 
     try:
         tickets = list_tickets(status, priority)
@@ -272,7 +273,10 @@ def main() -> None:
         st.error(f"Could not read the support queue: {error}")
         return
 
-    left, right = st.columns((1, 2), gap="large")
+    search = st.text_input("Search inbox", placeholder="Search customers, tickets, or messages…")
+    if search:
+        tickets = [row for row in tickets if search.lower() in " ".join(str(value or "") for value in row).lower()]
+    left, right, details = st.columns((1, 2.4, 1), gap="medium")
     with left:
         st.markdown("<div class='queue-label'>PRIORITY QUEUE</div>", unsafe_allow_html=True)
         selected_id = render_ticket_list(tickets)
@@ -284,17 +288,29 @@ def main() -> None:
         st.warning("The selected ticket was removed. Refresh the queue.")
         return
 
-    with right:
-        st.subheader("Handoff details")
-        st.caption(f"Ticket {ticket['id']} · created {ticket['created_at']}")
-        first, second, third = st.columns(3)
-        first.metric("Priority", ticket["priority"].title())
-        second.metric("Status", ticket["status"].replace("_", " ").title())
-        third.metric("Assigned to", ticket["assigned_to"] or "Unassigned")
+    with details:
+        st.subheader("Customer & order")
+        st.caption(f"Ticket #{ticket['id'][:8]}")
+        st.metric("Priority", ticket["priority"].title())
+        st.metric("Status", ticket["status"].replace("_", " ").title())
+        st.caption(f"Assigned to: {ticket['assigned_to'] or 'Unassigned'}")
         st.markdown(f"**Customer:** {ticket['full_name'] or 'Unknown'} {f'({ticket["email"]})' if ticket['email'] else ''}")
         st.markdown(f"**Handoff reason:** {ticket['reason']}")
         st.markdown("**AI summary**")
         st.info(ticket["ai_summary"])
+        from services.support_service import SupportService
+        service = SupportService(database_path())
+        context = service.get_conversation_context(ticket["conversation_id"])
+        st.caption(f"Order: {context['order_number'] or 'Not supplied'}")
+        if context['order_number']:
+            try:
+                order = service.lookup_order(context['order_number'], context['email'] or None)
+                if order:
+                    st.markdown(f"**{order.status.title()}**")
+                    st.caption(f"Estimated delivery: {order.estimated_delivery_date or 'Not available'}")
+            except ValueError:
+                st.caption("Order details need verification.")
+    with right:
         render_transcript(ticket["conversation_id"])
 
         st.divider()

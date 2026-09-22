@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from database.seed import seed
 from foundry.runtime import FoundryInvocationError, ask_support_agent
 from services.support_service import OrderDetails, SupportService
-from services.chat_style import CHAT_STYLE
+from services.chat_style import CHAT_STYLE, navigation
 
 
 PAGE_TITLE = "Acme Support"
@@ -268,6 +268,7 @@ def main() -> None:
     )
 
     st.markdown(CHAT_STYLE, unsafe_allow_html=True)
+    st.markdown(navigation("customer"), unsafe_allow_html=True)
     with st.sidebar:
         st.markdown("<div class='brand-kicker'>ACME / CUSTOMER CARE</div><div class='brand-name'>Acme Support</div><div class='brand-copy'>A faster way to get order help, built for calm conversations.</div>", unsafe_allow_html=True)
         st.markdown("<div class='sidebar-card'><b>Secure order help</b>Your order details are checked before the assistant shares information.</div>", unsafe_allow_html=True)
@@ -275,8 +276,8 @@ def main() -> None:
         st.subheader("Order context")
         order_number = st.text_input(
             "Order number",
-            placeholder="e.g. ORD-1042",
-            help="This will be used by the order-lookup tool once it is connected.",
+            placeholder="e.g. CS-1001",
+            help="Enter the order number from your confirmation.",
             key="order_number_input",
         ).strip()
         email = st.text_input("Email address (optional)", placeholder="you@example.com", key="email_input").strip()
@@ -286,7 +287,7 @@ def main() -> None:
 
         st.divider()
         st.subheader("Conversation")
-        st.caption(f"{len(st.session_state.messages)} messages in this session")
+        st.caption(f"{len(service.list_messages(st.session_state.conversation_id))} messages in this conversation")
         st.button("Start a new chat", use_container_width=True, on_click=start_new_chat)
 
     st.markdown("""<section class="hero"><div class="eyebrow">ACME CARE DESK</div><h1>How can we help?</h1><p>Ask about an order, delivery, returns, or a support policy.</p></section>""", unsafe_allow_html=True)
@@ -309,8 +310,7 @@ def main() -> None:
         role_map = {"customer": "user", "ai": "assistant", "human": "assistant", "system": "assistant"}
         for message in persisted_messages:
             with st.chat_message(role_map[message["sender_type"]]):
-                if message["sender_type"] == "human":
-                    st.caption("Human support")
+                st.caption({"customer": "You", "ai": "Acme AI", "human": "Human support", "system": "Support update"}[message["sender_type"]])
                 st.markdown(message["body"])
     else:
         for message in st.session_state.messages:
