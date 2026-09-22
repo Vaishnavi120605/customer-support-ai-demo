@@ -70,6 +70,21 @@ def initialise_session() -> None:
     if "conversation_id" not in st.session_state:
         st.session_state.conversation_id = saved_conversation_id or service.create_conversation()
 
+    # A saved URL can outlive its local SQLite database (for example, after a
+    # user runs seed.py again or opens a newly extracted copy of the project).
+    # Treat that old identifier as a new chat rather than showing a traceback.
+    try:
+        service.get_support_mode(st.session_state.conversation_id)
+    except LookupError:
+        st.session_state.conversation_id = service.create_conversation()
+        st.session_state.messages = [
+            {
+                "role": "assistant",
+                "content": "Hi! I can help with orders, delivery, returns, and store policies. What can I look into?",
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+            }
+        ]
+
     # Restore the customer-selected support mode after a browser refresh.
     ticket = service.get_handoff_for_conversation(st.session_state.conversation_id)
     if service.get_support_mode(st.session_state.conversation_id) == "human":
