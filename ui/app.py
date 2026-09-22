@@ -166,6 +166,16 @@ def render_handoff_banner() -> None:
         st.info(f"✨ **Support status:** {status}")
 
 
+def switch_to_ai(service: SupportService) -> None:
+    """Return control to AI after the customer explicitly chooses it."""
+    service.switch_to_ai(st.session_state.conversation_id)
+    st.session_state.handoff_requested = False
+    st.session_state.handoff_status = "AI support is handling this conversation"
+    reply = "AI support is active again. How can I help?"
+    add_message("assistant", reply)
+    service.add_message(st.session_state.conversation_id, "system", reply)
+
+
 def main() -> None:
     st.set_page_config(page_title=PAGE_TITLE, page_icon="💬", layout="wide")
     initialise_session()
@@ -211,6 +221,12 @@ def main() -> None:
 
     service = SupportService(DATABASE_PATH)
     persisted_messages = service.list_messages(st.session_state.conversation_id)
+    handoff_ticket = service.get_handoff_for_conversation(st.session_state.conversation_id)
+    awaiting_human_reply = (
+        service.get_support_mode(st.session_state.conversation_id) == "human"
+        and handoff_ticket is not None
+        and handoff_ticket.status in {"open", "assigned"}
+    )
     if persisted_messages:
         role_map = {"customer": "user", "ai": "assistant", "human": "assistant", "system": "assistant"}
         for message in persisted_messages:
@@ -223,7 +239,21 @@ def main() -> None:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-    prompt = st.chat_input("Type your question…")
+    if awaiting_human_reply:
+        st.info("Your message is with human support. Wait for their reply before sending the next question.")
+        check_reply, switch_ai = st.columns(2)
+        with check_reply:
+            if st.button("Check for human reply", use_container_width=True):
+                st.rerun()
+        with switch_ai:
+            if st.button("Switch back to AI", use_container_width=True):
+                switch_to_ai(service)
+                st.rerun()
+
+    prompt = st.chat_input(
+        "Waiting for human support…" if awaiting_human_reply else "Type your question…",
+        disabled=awaiting_human_reply,
+    )
     if not prompt:
         return
 
@@ -234,14 +264,10 @@ def main() -> None:
 
     if service.get_support_mode(st.session_state.conversation_id) == "human":
         if requests_ai_support(prompt):
-            service.switch_to_ai(st.session_state.conversation_id)
-            st.session_state.handoff_requested = False
-            st.session_state.handoff_status = "AI support is handling this conversation"
-            reply = "AI support is active again. How can I help?"
+            switch_to_ai(service)
+            reply = st.session_state.messages[-1]["content"]
             with st.chat_message("assistant"):
                 st.markdown(reply)
-            add_message("assistant", reply)
-            service.add_message(st.session_state.conversation_id, "system", reply)
         # In human mode, ordinary customer messages are saved above for the
         # specialist. The AI intentionally remains silent.
         return
