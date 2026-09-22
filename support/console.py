@@ -188,21 +188,29 @@ def resolve_ticket(ticket_id: str, specialist: str) -> None:
 
 
 def render_ticket_list(tickets: list[sqlite3.Row]) -> str | None:
+    selected = st.session_state.get("selected_ticket") or st.query_params.get("ticket")
+    # Keep the case being handled visible when sending changes its status or
+    # latest message, even if it no longer matches the current queue filters.
+    if selected and selected not in {row["id"] for row in tickets}:
+        current_ticket = get_ticket(selected)
+        if current_ticket is not None:
+            tickets = [current_ticket, *tickets]
     if not tickets:
+        st.query_params.pop("ticket", None)
+        st.session_state.pop("selected_ticket", None)
         st.info("No handoff tickets match these filters.")
         return None
     labels = {
         row["id"]: f"{row['priority'].upper()} · {row['status']} · {row['full_name'] or 'Unknown customer'} · {row['reason'][:55]}"
         for row in tickets
     }
-    selected = st.query_params.get("ticket")
     options = list(labels)
-    if selected and selected not in options:
-        st.info("Your selected ticket is hidden by these filters. Clear the filters to see it.")
-        return None
+    if selected not in options:
+        selected = options[0]
+    st.session_state["selected_ticket"] = selected
     def remember_ticket():
         st.query_params["ticket"] = st.session_state["selected_ticket"]
-    chosen = st.radio("Support queue", options=options, index=options.index(selected) if selected in options else 0,
+    chosen = st.radio("Support queue", options=options,
                       format_func=labels.get, key="selected_ticket", on_change=remember_ticket, label_visibility="collapsed")
     st.query_params["ticket"] = chosen
     return chosen
