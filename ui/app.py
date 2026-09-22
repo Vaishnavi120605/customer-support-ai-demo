@@ -161,9 +161,19 @@ def agent_requested_handoff(response: str) -> bool:
 def render_handoff_banner() -> None:
     status = st.session_state.handoff_status
     if st.session_state.handoff_requested:
-        st.warning(f"🧑‍💼 **Human support requested** — {status}")
+        st.markdown(
+            f"""<div class="support-state human-state">
+            <div class="state-icon">◉</div><div><span>HUMAN SUPPORT</span><strong>{status}</strong></div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
     else:
-        st.info(f"✨ **Support status:** {status}")
+        st.markdown(
+            f"""<div class="support-state ai-state">
+            <div class="state-icon">✦</div><div><span>AI ASSISTANT ACTIVE</span><strong>{status}</strong></div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
 
 def switch_to_ai(service: SupportService) -> None:
@@ -192,16 +202,42 @@ def main() -> None:
     st.markdown(
         """
         <style>
-        .block-container {max-width: 980px; padding-top: 2.25rem;}
-        [data-testid="stChatMessage"] {border-radius: 14px;}
+        :root { --ink: #f8fafc; --muted: #98a5b8; --panel: #121a2a; --line: #26344e;
+        --blue: #5da9ff; --violet: #8b75ff; --mint: #61dfbc; }
+        .stApp { background: radial-gradient(circle at 80% -8%, #18356a 0, transparent 32%),
+                 radial-gradient(circle at 14% 5%, #272153 0, transparent 26%), #090f1d; color: var(--ink); }
+        .block-container {max-width: 1080px; padding-top: 2rem; padding-bottom: 7rem;}
+        [data-testid="stSidebar"] {background: linear-gradient(180deg, #101829 0%, #0c1220 100%); border-right: 1px solid var(--line);}
+        [data-testid="stSidebar"] > div:first-child {padding-top: 1.5rem;}
+        [data-testid="stSidebar"] .stTextInput input {background: #0a1020; border: 1px solid #2a3955; border-radius: 10px; color: #fff;}
+        [data-testid="stChatMessage"] {border: 1px solid #24314a; border-radius: 18px; padding: 1rem 1.1rem; margin: .75rem 0; background: rgba(18, 26, 42, .88); box-shadow: 0 12px 35px rgba(0,0,0,.12);}
+        [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {background: linear-gradient(125deg, #18284a, #172440); border-color: #35578d;}
+        [data-testid="stChatInput"] {border-radius: 16px; border: 1px solid #344d76; background: #111a2b; box-shadow: 0 16px 45px rgba(0,0,0,.3);}
+        [data-testid="stChatInput"] textarea {color: #fff;}
+        .stButton > button {border-radius: 10px; min-height: 2.55rem; border: 1px solid #3b5682; background: linear-gradient(135deg, #1b3157, #182b4a); color: #f8fbff; font-weight: 650;}
+        .stButton > button:hover {border-color: #78b5ff; color: white; transform: translateY(-1px);}
+        .brand-kicker, .eyebrow {font-size: .72rem; font-weight: 800; letter-spacing: .14em; color: #8ebfff;}
+        .brand-name {font-size: 1.45rem; font-weight: 800; letter-spacing: -.04em; margin: .25rem 0;}
+        .brand-copy {font-size: .82rem; color: var(--muted); line-height: 1.45;}
+        .hero {padding: 1.9rem 2rem; border-radius: 22px; border: 1px solid rgba(121, 167, 255, .32); background: linear-gradient(120deg, rgba(30, 57, 104, .92), rgba(22, 28, 60, .92)); box-shadow: 0 22px 55px rgba(2,7,20,.25); margin-bottom: 1.15rem;}
+        .hero h1 {font-size: clamp(2rem, 4vw, 3.45rem); letter-spacing: -.06em; margin: .45rem 0 .55rem; line-height: 1;}
+        .hero p {margin: 0; color: #b9c7dd; font-size: 1rem;}
+        .support-state {display: flex; align-items: center; gap: .85rem; padding: .95rem 1.05rem; margin: .75rem 0 1.25rem; border-radius: 14px; border: 1px solid;}
+        .support-state .state-icon {width: 2rem; height: 2rem; display:grid; place-items:center; border-radius: 50%; font-weight:800;}
+        .support-state span {display:block; font-size:.67rem; letter-spacing:.1em; font-weight:800; margin-bottom:.15rem;}
+        .support-state strong {font-size:.88rem; font-weight:600;}
+        .ai-state {background: rgba(20, 74, 119, .38); border-color:#2e6ca5;}.ai-state .state-icon {background:#1c5c95; color:#aee3ff;}.ai-state span {color:#83caff;}
+        .human-state {background: rgba(103, 82, 20, .38); border-color:#8f7a30;}.human-state .state-icon {background:#806c26; color:#fff0a5;}.human-state span {color:#f4dc70;}
+        .sidebar-card {padding: .85rem; border: 1px solid #26344e; border-radius: 12px; background: rgba(19, 29, 47, .72); margin: .65rem 0 1rem; color: #aebbd0; font-size: .8rem; line-height:1.5;}
+        .sidebar-card b {display:block; color:#ecf3ff; font-size:.78rem; margin-bottom:.2rem;}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
     with st.sidebar:
-        st.title("Acme Support")
-        st.caption("Customer support AI demo")
+        st.markdown("<div class='brand-kicker'>ACME / CUSTOMER CARE</div><div class='brand-name'>Acme Support</div><div class='brand-copy'>A faster way to get order help, built for calm conversations.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='sidebar-card'><b>Secure order help</b>Your order details are checked before the assistant shares information.</div>", unsafe_allow_html=True)
         st.divider()
         st.subheader("Order context")
         order_number = st.text_input(
@@ -224,8 +260,7 @@ def main() -> None:
             add_message("assistant", "New conversation started. How can I help today?")
             st.rerun()
 
-    st.title("How can we help?")
-    st.caption("Ask about an order, delivery, returns, or a support policy.")
+    st.markdown("""<section class="hero"><div class="eyebrow">ACME CARE DESK</div><h1>How can we help?</h1><p>Ask about an order, delivery, returns, or a support policy.</p></section>""", unsafe_allow_html=True)
     render_handoff_banner()
 
     service = SupportService(DATABASE_PATH)

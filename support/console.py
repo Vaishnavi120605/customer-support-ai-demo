@@ -189,8 +189,27 @@ def render_transcript(conversation_id: str) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Acme Support Console", page_icon="🧑‍💼", layout="wide")
-    st.title("Human support console")
-    st.caption("Review AI handoffs, communicate with customers, and close resolved requests.")
+    st.markdown(
+        """
+        <style>
+        :root {--line:#26344e; --panel:#121a2a; --muted:#9aa9bd;}
+        .stApp {background: radial-gradient(circle at 88% -12%, #1b3c6d 0, transparent 32%), #090f1d; color:#f8fafc;}
+        .block-container {max-width: 1440px; padding-top: 2rem; padding-bottom: 5rem;}
+        [data-testid="stSidebar"] {background:linear-gradient(180deg,#101829,#0c1220); border-right:1px solid var(--line);}
+        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {background:#0a1020; border-color:#2a3955; border-radius:10px;}
+        [data-testid="stChatMessage"] {border:1px solid #26344e; border-radius:15px; padding:.85rem 1rem; margin:.6rem 0; background:rgba(18,26,42,.9);}
+        .stButton > button, [data-testid="stFormSubmitButton"] > button {border-radius:10px; min-height:2.5rem; border:1px solid #3b5682; background:linear-gradient(135deg,#1b3157,#182b4a); color:#fff; font-weight:650;}
+        .stButton > button[kind="primary"] {background:linear-gradient(135deg,#b4495d,#7d243f); border-color:#e36a7a;}
+        .stTextInput input, .stTextArea textarea {background:#0a1020 !important; border-color:#2b3b56 !important; border-radius:10px !important; color:#fff !important;}
+        .console-hero {padding:1.65rem 1.8rem; border:1px solid rgba(121,167,255,.3); border-radius:20px; background:linear-gradient(120deg,rgba(28,55,100,.9),rgba(17,25,52,.92)); margin-bottom:1.35rem;}
+        .console-hero .kicker {color:#93c4ff; letter-spacing:.14em; font-size:.7rem; font-weight:800;}.console-hero h1 {font-size:2.3rem; letter-spacing:-.055em; margin:.3rem 0 .35rem;}.console-hero p {color:#bfcbdd; margin:0;}
+        .queue-label {font-size:.7rem; font-weight:800; letter-spacing:.12em; color:#8ebfff; margin:0 0 .55rem;}
+        [data-testid="stMetric"] {background:rgba(18,26,42,.85); border:1px solid #26344e; padding:.8rem; border-radius:12px;}
+        </style>
+        <section class="console-hero"><div class="kicker">ACME CARE / OPERATIONS</div><h1>Human support console</h1><p>Review AI handoffs, communicate with customers, and close resolved requests.</p></section>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if not database_path().exists():
         st.error(f"Database not found: {database_path()}")
@@ -198,6 +217,7 @@ def main() -> None:
         return
 
     with st.sidebar:
+        st.markdown("<div class='queue-label'>LIVE INBOX</div>", unsafe_allow_html=True)
         st.header("Queue filters")
         status = st.selectbox("Status", ("all", *TICKET_STATUSES))
         priority = st.selectbox("Priority", ("all", *PRIORITIES))
@@ -214,6 +234,7 @@ def main() -> None:
 
     left, right = st.columns((1, 2), gap="large")
     with left:
+        st.markdown("<div class='queue-label'>PRIORITY QUEUE</div>", unsafe_allow_html=True)
         selected_id = render_ticket_list(tickets)
     if not selected_id:
         return
