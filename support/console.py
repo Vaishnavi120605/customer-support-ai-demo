@@ -131,6 +131,8 @@ def post_reply(ticket_id: str, body: str, specialist: str) -> None:
             raise ValueError("This ticket no longer exists.")
         if ticket["status"] == "resolved":
             raise ValueError("Reopen the ticket before replying.")
+        if ticket["status"] == "waiting_customer":
+            raise ValueError("Wait for the customer’s next message before sending another reply.")
         now = utc_now()
         connection.execute(
             "INSERT INTO messages (id, conversation_id, sender_type, body, created_at) VALUES (?, ?, 'human', ?, ?)",
@@ -255,9 +257,13 @@ def main() -> None:
                 except (ValueError, sqlite3.Error) as error:
                     st.error(str(error))
 
+        waiting_for_customer = ticket["status"] == "waiting_customer"
+        if waiting_for_customer:
+            st.info("Waiting for the customer’s next message before the next human reply.")
+        reply_disabled = ticket["status"] == "resolved" or waiting_for_customer
         with st.form(f"reply-{ticket['id']}", clear_on_submit=True):
-            reply = st.text_area("Reply to customer", placeholder="Write a helpful, customer-ready response…", disabled=ticket["status"] == "resolved")
-            sent = st.form_submit_button("Send reply", disabled=ticket["status"] == "resolved", use_container_width=True)
+            reply = st.text_area("Reply to customer", placeholder="Write a helpful, customer-ready response…", disabled=reply_disabled)
+            sent = st.form_submit_button("Send reply", disabled=reply_disabled, use_container_width=True)
         if sent:
             try:
                 post_reply(ticket["id"], reply, specialist)

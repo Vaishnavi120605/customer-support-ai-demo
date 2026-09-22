@@ -161,6 +161,22 @@ class SupportService:
                 "INSERT INTO messages (id, conversation_id, sender_type, body) VALUES (?, ?, ?, ?)",
                 (message_id, conversation_id, sender_type, body),
             )
+            if sender_type == "customer":
+                # A new customer message gives the specialist the next turn.
+                # Preserve the assigned specialist while moving the ticket out
+                # of the "waiting_customer" state.
+                ticket_updated = connection.execute(
+                    """UPDATE handoff_tickets
+                       SET status = CASE WHEN assigned_to IS NULL THEN 'open' ELSE 'assigned' END
+                       WHERE conversation_id = ? AND status = 'waiting_customer'""",
+                    (conversation_id,),
+                ).rowcount
+                if ticket_updated:
+                    connection.execute(
+                        """INSERT INTO audit_events (id, conversation_id, event_type, actor_type, detail)
+                           VALUES (?, ?, 'customer_replied', 'customer', ?)""",
+                        (str(uuid4()), conversation_id, "Customer replied and returned the turn to support."),
+                    )
         return message_id
 
     def list_messages(self, conversation_id: str) -> tuple[dict[str, str], ...]:
