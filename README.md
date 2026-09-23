@@ -4,6 +4,8 @@ A portfolio-ready demonstration of an AI customer-support chat experience for or
 
 ## Project presentation
 
+- [View the presentation with application screenshots](docs/Acme-Support-With-Screenshots.pdf)
+- [Download the PowerPoint with screenshots](docs/Acme-Support-With-Screenshots.pptx)
 - [View the presentation as a PDF](docs/Acme-Support-Project-Presentation.pdf)
 - [Download the editable PowerPoint](docs/Acme-Support-Project-Presentation.pptx)
 
