@@ -2,6 +2,13 @@
 
 A portfolio-ready demonstration of an AI customer-support chat experience for order questions. It uses Microsoft Foundry (Azure AI Foundry), Streamlit, and SQLite, and transfers conversations to a human support agent when the request needs human judgment.
 
+## Project presentation
+
+- [View the presentation as a PDF](docs/Acme-Support-Project-Presentation.pdf)
+- [Download the editable PowerPoint](docs/Acme-Support-Project-Presentation.pptx)
+
+The 12-slide presentation covers the application architecture, customer chat, human handoff, support workflow, demo walkthrough, verification, and future improvements.
+
 ## Goals
 
 - Answer grounded order and policy questions.
